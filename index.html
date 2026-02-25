@@ -253,6 +253,26 @@ select.form-input { cursor:pointer; }
 
 /* RESPONSIVE */
 @media(max-width:600px) { .card{padding:22px 16px;} .auth-bar{position:static;justify-content:flex-end;width:100%;max-width:760px;} }
+
+/* LEADERBOARD */
+.leaderboard-item { display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:12px; margin-bottom:8px; background:rgba(255,252,244,0.7); border:1.5px solid rgba(122,158,126,0.18); transition:all 0.2s; }
+.leaderboard-item:hover { transform:translateX(4px); border-color:var(--sage); }
+.lb-rank { width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.85rem; font-weight:700; flex-shrink:0; }
+.lb-rank-1 { background:linear-gradient(135deg,#ffd700,#ffb300); color:#7a5000; box-shadow:0 2px 8px rgba(255,179,0,0.4); }
+.lb-rank-2 { background:linear-gradient(135deg,#e0e0e0,#bdbdbd); color:#555; }
+.lb-rank-3 { background:linear-gradient(135deg,#ffb07c,#e07840); color:#fff; }
+.lb-rank-other { background:rgba(122,158,126,0.12); color:var(--moss); font-size:0.75rem; }
+.lb-avatar { width:34px; height:34px; border-radius:50%; border:2px solid rgba(122,158,126,0.3); flex-shrink:0; object-fit:cover; }
+.lb-info { flex:1; min-width:0; }
+.lb-name { font-size:0.88rem; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lb-meta { font-size:0.72rem; color:var(--moss); }
+.lb-score { font-family:"Crimson Pro",serif; font-size:1.1rem; font-weight:600; color:var(--forest); white-space:nowrap; }
+/* ACTIVITY FEED */
+.activity-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:10px; background:rgba(122,158,126,0.06); border:1px solid rgba(122,158,126,0.1); font-size:0.78rem; color:var(--charcoal); margin-bottom:6px; }
+.activity-icon { font-size:1rem; flex-shrink:0; }
+.activity-text { flex:1; line-height:1.4; }
+.activity-text strong { color:var(--forest); }
+.activity-time { font-size:0.68rem; color:var(--dust); white-space:nowrap; flex-shrink:0; }
 </style>
 </head>
 <body>
@@ -315,6 +335,27 @@ select.form-input { cursor:pointer; }
     <div id="studentHistoryList"></div>
   </div>
 
+
+  <!-- Leaderboard -->
+  <div class="card screen" id="screen-leaderboard">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      <div class="section-title" style="margin-bottom:0">🏆 Bảng xếp hạng</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="form-input" id="lbFilterExam" style="width:auto;font-size:0.78rem" onchange="loadLeaderboard()">
+          <option value="">Tất cả bộ đề</option>
+        </select>
+        <button class="btn btn-ghost" style="padding:6px 12px;font-size:0.78rem" onclick="showStudentHome()">← Quay lại</button>
+      </div>
+    </div>
+    <div id="leaderboardList"></div>
+  </div>
+
+  <!-- Activity Feed -->
+  <div class="card" id="activityFeedCard" style="display:none;max-width:760px">
+    <div class="section-title">⚡ Hoạt động gần đây</div>
+    <div id="activityFeed"></div>
+  </div>
+
   <!-- Quiz Screen -->
   <div class="card screen" id="screen-quiz">
     <div class="quiz-header">
@@ -353,6 +394,7 @@ select.form-input { cursor:pointer; }
     <div class="btn-row" style="margin-top:16px">
       <button class="btn btn-primary" onclick="showStudentHome()">🏠 Về trang chủ</button>
       <button class="btn btn-ghost" onclick="showStudentHistory()">📜 Lịch sử</button>
+      <button class="btn btn-amber" onclick="showLeaderboard()">🏆 Xếp hạng</button>
     </div>
   </div>
 
@@ -721,6 +763,7 @@ function renderStudentExams() {
 
 function showStudentHome() {
   loadStudentExams();
+  loadActivityFeed();
   showScreen('student-home');
 }
 
@@ -756,6 +799,101 @@ async function showStudentHistory() {
       </div>`;
     }).join('');
   } catch(e) { el.innerHTML = '<div style="color:var(--rust);padding:16px">Lỗi tải lịch sử</div>'; }
+}
+
+
+// ============================================================
+//  LEADERBOARD & ACTIVITY FEED
+// ============================================================
+async function showLeaderboard() {
+  showScreen('leaderboard');
+  // Populate filter
+  const sel = document.getElementById('lbFilterExam');
+  sel.innerHTML = '<option value="">Tất cả bộ đề</option>';
+  allExams.forEach(e => {
+    const opt = document.createElement('option');
+    opt.value = e.id;
+    opt.textContent = e.title;
+    sel.appendChild(opt);
+  });
+  loadLeaderboard();
+}
+
+async function loadLeaderboard() {
+  const el = document.getElementById('leaderboardList');
+  el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--dust)">Đang tải...</div>';
+  try {
+    const filterExamId = document.getElementById('lbFilterExam').value;
+    const snap = await window._fGetDocs(window._fCollection(window._db, 'results'));
+    let results = [];
+    snap.forEach(d => results.push(d.data()));
+    if (filterExamId) results = results.filter(r => r.examId === filterExamId);
+
+    // Best score per student (per exam if filtered, overall if not)
+    const bestMap = {};
+    results.forEach(r => {
+      const key = r.studentUid;
+      if (!bestMap[key] || r.pct > bestMap[key].pct) bestMap[key] = r;
+    });
+    let top = Object.values(bestMap).sort((a,b) => b.pct - a.pct || b.score - a.score);
+
+    if (!top.length) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🌱</div><p>Chưa có ai hoàn thành bài thi nào!</p></div>';
+      return;
+    }
+
+    const rankIcons = ['🥇','🥈','🥉'];
+    el.innerHTML = top.map((r, i) => {
+      const rankClass = i === 0 ? 'lb-rank-1' : i === 1 ? 'lb-rank-2' : i === 2 ? 'lb-rank-3' : 'lb-rank-other';
+      const rankLabel = i < 3 ? rankIcons[i] : (i+1);
+      const isMe = r.studentUid === currentUser.uid;
+      return `<div class="leaderboard-item" style="${isMe ? 'border-color:var(--amber);background:rgba(212,168,71,0.08)' : ''}">
+        <div class="lb-rank ${rankClass}">${rankLabel}</div>
+        <div style="width:34px;height:34px;border-radius:50%;background:rgba(122,158,126,0.15);display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0">👤</div>
+        <div class="lb-info">
+          <div class="lb-name">${h(r.studentName||'Ẩn danh')}${isMe ? ' <span style="font-size:0.65rem;color:var(--amber);font-weight:700">(Bạn)</span>' : ''}</div>
+          <div class="lb-meta">${h(r.examTitle||'')} · ${r.total} câu</div>
+        </div>
+        <div class="lb-score">${r.score}/${r.total} <span style="font-size:0.75rem;color:var(--moss)">(${r.pct}%)</span></div>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<div style="color:var(--rust);padding:16px">Lỗi tải bảng xếp hạng</div>'; }
+}
+
+async function loadActivityFeed() {
+  const card = document.getElementById('activityFeedCard');
+  const el = document.getElementById('activityFeed');
+  try {
+    const snap = await window._fGetDocs(window._fCollection(window._db, 'results'));
+    let results = [];
+    snap.forEach(d => results.push(d.data()));
+    results.sort((a,b) => (b.completedAt||0) - (a.completedAt||0));
+    const recent = results.slice(0, 10);
+    if (!recent.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    el.innerHTML = recent.map(r => {
+      const pct = r.pct || Math.round(r.score/r.total*100);
+      const icon = pct >= 80 ? '🏆' : pct >= 50 ? '🌿' : '🌱';
+      const timeAgo = getTimeAgo(r.completedAt);
+      return `<div class="activity-item">
+        <span class="activity-icon">${icon}</span>
+        <div class="activity-text"><strong>${h(r.studentName||'Ai đó')}</strong> vừa hoàn thành <strong>${h(r.examTitle||'')}</strong> với ${r.score}/${r.total} câu đúng (${pct}%)</div>
+        <span class="activity-time">${timeAgo}</span>
+      </div>`;
+    }).join('');
+  } catch(e) { card.style.display = 'none'; }
+}
+
+function getTimeAgo(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff/60000);
+  const h2 = Math.floor(diff/3600000);
+  const d = Math.floor(diff/86400000);
+  if (m < 1) return 'Vừa xong';
+  if (m < 60) return m + ' phút trước';
+  if (h2 < 24) return h2 + ' giờ trước';
+  return d + ' ngày trước';
 }
 
 // ============================================================
@@ -913,7 +1051,7 @@ function updateStudentNav(screen) {
   const old = document.getElementById('studentNav');
   if (old) old.remove();
   if (!currentUser || isAdmin) return;
-  if (!['student-home','student-history'].includes(screen)) return;
+  if (!['student-home','student-history','leaderboard'].includes(screen)) return;
   const nav = document.createElement('div');
   nav.id = 'studentNav';
   nav.style.cssText = 'width:100%;max-width:760px;display:flex;gap:8px;justify-content:center;margin-bottom:8px;position:relative;z-index:1';
